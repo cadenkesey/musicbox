@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int phrase_rep_hold[6] = {0,0,0,0,0,0};
+
 typedef struct note {
 	int value;
 	float length;
@@ -19,6 +21,12 @@ typedef struct phrase {
 	int repetitions;
 	struct phrase* next;
 } phrase;
+
+typedef struct section {
+	struct phrase* head;
+	int repetitions;
+	struct section* next;
+} section;
 
 void printList(struct note* n) {
 	int i = 0;
@@ -114,7 +122,7 @@ int** load_chords(char* filename) {
 					int j = 0;
 					while ((token_B = strtok_s(rest_B, " ", &rest_B))) {
 						progression[i][j] = (int)strtol(token_B, (char**)NULL, 10);
-						post("IN THE OTHER [%d] [%d]: %d", i, j, progression[i][j]);
+						//post("IN THE OTHER [%d] [%d]: %d", i, j, progression[i][j]);
 						j++;
 					}
 					i++;
@@ -133,14 +141,39 @@ int get_random(int lower, int upper)
 	return num;
 }
 
-phrase* next_phrase(phrase* current_phrase) {
+phrase* next_phrase(phrase* current_phrase, int inst) {
 	if (current_phrase->repetitions < 1) {
 		if (current_phrase->next != NULL) {
+			//post("SETTING REPETITIONS OF %d TO %d", inst, phrase_rep_hold[inst]);
+			current_phrase->repetitions = phrase_rep_hold[inst];
 			current_phrase = current_phrase->next;
+			phrase_rep_hold[inst] = 0;
 		}
+	}
+
+	if (current_phrase->repetitions > phrase_rep_hold[inst]) {
+		phrase_rep_hold[inst] = current_phrase->repetitions;
 	}
 
 	current_phrase->repetitions = current_phrase->repetitions - 1;
 
 	return current_phrase;
+}
+
+phrase* reset_phrase(phrase* current_phrase, int inst) {
+	//post("RESETTING REPETITIONS OF %d TO %d", inst, phrase_rep_hold[inst]);
+	current_phrase->repetitions = phrase_rep_hold[inst];
+	return current_phrase;
+}
+
+section* next_section(section* current_section) {
+	if (current_section->repetitions < 1) {
+		if (current_section->next != NULL) {
+			current_section = current_section->next;
+		}
+	}
+
+	current_section->repetitions = current_section->repetitions - 1;
+
+	return current_section;
 }

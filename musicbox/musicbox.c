@@ -22,7 +22,13 @@ typedef struct _musicbox
 
 	// Outlets
 
-	void* bass_outlet_length; // rightmost outlet
+	void* piano_outlet_length; // rightmost outlet
+	void* piano_outlet_value_1;
+	void* piano_outlet_value_2;
+	void* piano_outlet_value_3;
+	void* piano_outlet_value_4;
+
+	void* bass_outlet_length;
 	void* bass_outlet_value;
 
 	void* melody_outlet_length;
@@ -43,7 +49,9 @@ typedef struct _musicbox
 	// Max clocks
 
 	void* m_clock; // Master
+	void* measure_clock;
 
+	void* piano_clock;
 	void* bass_clock;
 	void* melody_clock;
 	void* hat_clock;
@@ -52,6 +60,11 @@ typedef struct _musicbox
 	void* kick_clock;
 
 	// Linked lists
+
+	note* piano1_current;
+	note* piano2_current;
+	note* piano3_current;
+	note* piano4_current;
 
 	note* bass_current;
 	note* melody_current;
@@ -62,6 +75,11 @@ typedef struct _musicbox
 
 	// Phrases
 
+	phrase* piano1_phrase;
+	phrase* piano2_phrase;
+	phrase* piano3_phrase;
+	phrase* piano4_phrase;
+	
 	phrase* bass_phrase;
 	phrase* melody_phrase;
 	phrase* hat_phrase;
@@ -69,12 +87,29 @@ typedef struct _musicbox
 	phrase* snare_phrase;
 	phrase* kick_phrase;
 
+	// Sections
+
+	section* piano1_section;
+	section* piano2_section;
+	section* piano3_section;
+	section* piano4_section;
+
+	section* bass_section;
+	section* melody_section;
+	section* hat_section;
+	section* ghost_section;
+	section* snare_section;
+	section* kick_section;
+
 	// Other variables
 
-	long seed; // Seed for random number generation
+	unsigned int seed; // Seed for random number generation
 	long tempo; // Tempo of the song
 	float beat; // Beat length in milliseconds
 	long runs; // Loop repetitions
+	long measures;
+
+	int play;
 
 	ht_t* hash_note_names; // Hashtable for getting Midi note values
 
@@ -84,23 +119,31 @@ typedef struct _musicbox
 
 void musicbox_bang(t_musicbox* x);
 void musicbox_in1(t_musicbox* x, long n);
-void musicbox_in2(t_musicbox* x, long n);
+void musicbox_in2(t_musicbox* x, unsigned int n);
 void *musicbox_new(t_symbol *s, long argc, t_atom *argv);
 void musicbox_free(t_musicbox *x);
 void musicbox_assist(t_musicbox *x, void *b, long m, long a, char *s);
 void musicbox_task(t_musicbox* x);
+void musicbox_measure_task(t_musicbox* x);
+void musicbox_piano_task(t_musicbox* x);
 void musicbox_bass_task(t_musicbox* x);
 void musicbox_melody_task(t_musicbox* x);
 void musicbox_hat_task(t_musicbox* x);
 void musicbox_ghost_task(t_musicbox* x);
 void musicbox_snare_task(t_musicbox* x);
 void musicbox_kick_task(t_musicbox* x);
-void musicbox_create_phrase(t_musicbox* x, phrase* current_phrase, int* repeats, char** filename, int sections);
-void musicbox_loadfile(t_musicbox* x, note* current_note, char* filename);
+void musicbox_create_phrase(t_musicbox* x, phrase* current_phrase, char* filename, int rand_line);
+void musicbox_create_section(t_musicbox* x, section* current_section, char** filename, int rand_line);
+void musicbox_loadfile(t_musicbox* x, note* current_note, char* filename, int rand_line);
 void musicbox_create_melody(t_musicbox* x, note* current_note, note* follow_beat);
 void musicbox_create_melody_phrase(t_musicbox* x, phrase* current_phrase, phrase* follow_phrase);
+void musicbox_create_melody_section(t_musicbox* x, section* current_section, phrase* follow_phrase);
 void musicbox_create_bass(t_musicbox* x, note* current_note, note* follow_beat, int* scale);
 void musicbox_create_bass_phrase(t_musicbox* x, phrase* current_phrase, phrase* follow_phrase, int** progression);
+void musicbox_create_bass_section(t_musicbox* x, section* current_section, phrase* follow_phrase, int*** progressions);
+void musicbox_create_piano(t_musicbox* x, note* current_note, int* scale, int piano_note);
+void musicbox_create_piano_phrase(t_musicbox* x, phrase* current_phrase, int** progression, int piano_note);
+void musicbox_create_piano_section(t_musicbox* x, section* current_section, int*** progressions, int piano_note);
 
 // GLOBAL CLASS POINTER VARIABLE
 
@@ -143,6 +186,12 @@ void* musicbox_new(t_symbol* s, long argc, t_atom* argv)
 
 	// Outlets
 
+	x->piano_outlet_length = floatout(x);
+	x->piano_outlet_value_1 = intout(x);
+	x->piano_outlet_value_2 = intout(x);
+	x->piano_outlet_value_3 = intout(x);
+	x->piano_outlet_value_4 = intout(x);
+
 	x->bass_outlet_length = floatout(x);
 	x->bass_outlet_value = intout(x);
 
@@ -164,6 +213,8 @@ void* musicbox_new(t_symbol* s, long argc, t_atom* argv)
 	// Clocks
 
 	x->m_clock = clock_new((t_musicbox*)x, (method)musicbox_task);
+	x->measure_clock = clock_new((t_musicbox*)x, (method)musicbox_measure_task);
+	x->piano_clock = clock_new((t_musicbox*)x, (method)musicbox_piano_task);
 	x->bass_clock = clock_new((t_musicbox*)x, (method)musicbox_bass_task);
 	x->melody_clock = clock_new((t_musicbox*)x, (method)musicbox_melody_task);
 	x->hat_clock = clock_new((t_musicbox*)x, (method)musicbox_hat_task);
@@ -173,29 +224,53 @@ void* musicbox_new(t_symbol* s, long argc, t_atom* argv)
 
 	// Phrases & Linked Lists
 
-	x->bass_phrase = (struct phrase*)malloc(sizeof(struct phrase));
-	x->bass_phrase->head = (struct note*)malloc(sizeof(struct note));
+	x->piano1_section = (struct section*)malloc(sizeof(struct section));
+	x->piano1_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->piano1_section->head->head = (struct note*)malloc(sizeof(struct note));
 
-	x->melody_phrase = (struct phrase*)malloc(sizeof(struct phrase));
-	x->melody_phrase->head = (struct note*)malloc(sizeof(struct note));
+	x->piano2_section = (struct section*)malloc(sizeof(struct section));
+	x->piano2_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->piano2_section->head->head = (struct note*)malloc(sizeof(struct note));
 
-	x->hat_phrase = (struct phrase*)malloc(sizeof(struct phrase));
-	x->hat_phrase->head = (struct note*)malloc(sizeof(struct note));
+	x->piano3_section = (struct section*)malloc(sizeof(struct section));
+	x->piano3_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->piano3_section->head->head = (struct note*)malloc(sizeof(struct note));
 
-	x->ghost_phrase = (struct phrase*)malloc(sizeof(struct phrase));
-	x->ghost_phrase->head = (struct note*)malloc(sizeof(struct note));
+	x->piano4_section = (struct section*)malloc(sizeof(struct section));
+	x->piano4_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->piano4_section->head->head = (struct note*)malloc(sizeof(struct note));
 
-	x->snare_phrase = (struct phrase*)malloc(sizeof(struct phrase));
-	x->snare_phrase->head = (struct note*)malloc(sizeof(struct note));
+	x->bass_section = (struct section*)malloc(sizeof(struct section));
+	x->bass_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->bass_section->head->head = (struct note*)malloc(sizeof(struct note));
 
-	x->kick_phrase = (struct phrase*)malloc(sizeof(struct phrase));
-	x->kick_phrase->head = (struct note*)malloc(sizeof(struct note));
+	x->melody_section = (struct section*)malloc(sizeof(struct section));
+	x->melody_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->melody_section->head->head = (struct note*)malloc(sizeof(struct note));
+
+	x->hat_section = (struct section*)malloc(sizeof(struct section));
+	x->hat_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->hat_section->head->head = (struct note*)malloc(sizeof(struct note));
+
+	x->ghost_section = (struct section*)malloc(sizeof(struct section));
+	x->ghost_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->ghost_section->head->head = (struct note*)malloc(sizeof(struct note));
+
+	x->snare_section = (struct section*)malloc(sizeof(struct section));
+	x->snare_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->snare_section->head->head = (struct note*)malloc(sizeof(struct note));
+
+	x->kick_section = (struct section*)malloc(sizeof(struct section));
+	x->kick_section->head = (struct phrase*)malloc(sizeof(struct phrase));
+	x->kick_section->head->head = (struct note*)malloc(sizeof(struct note));
 
 	// Other variables
 
 	x->tempo = 0;
 	x->runs = 0;
 	x->seed = 0;
+	x->measures = 0;
+	x->play = 0;
 
 	// Create hashtable for midi note values
 
@@ -219,7 +294,7 @@ void musicbox_assist(t_musicbox* x, void* b, long m, long a, char* s)
 			sprintf(s, "Start playing a sequence of notes");
 		}
 		else if (a == 1) {
-			sprintf(s, "Seed");
+			sprintf(s, "Seed 1");
 		}
 		else if (a == 2) {
 			sprintf(s, "Tempo");
@@ -271,6 +346,8 @@ void musicbox_assist(t_musicbox* x, void* b, long m, long a, char* s)
 void musicbox_free(t_musicbox* x)
 {
 	object_free(x->m_clock);
+	object_free(x->measure_clock);
+	object_free(x->piano_clock);
 	object_free(x->bass_clock);
 	object_free(x->melody_clock);
 	object_free(x->hat_clock);
@@ -286,6 +363,8 @@ void musicbox_bang(t_musicbox* x)
 	// Unset all clocks
 
 	clock_unset(x->m_clock);
+	clock_unset(x->measure_clock);
+	clock_unset(x->piano_clock);
 	clock_unset(x->bass_clock);
 	clock_unset(x->melody_clock);
 	clock_unset(x->hat_clock);
@@ -293,43 +372,74 @@ void musicbox_bang(t_musicbox* x)
 	clock_unset(x->snare_clock);
 	clock_unset(x->kick_clock);
 
-	//Set random number seed
+	if (x->play == 0) {
 
-	srand(x->seed);
+		x->play = 1;
 
-	// Load instrument
+		// Set random number seed
 
-	char* f_hat = "D:/music_algorithm/patterns/hat.txt";
-	char* f_hat2 = "D:/music_algorithm/patterns/hat2.txt";
-	char* sections_hat[2] = {f_hat, f_hat2};
-	int repeats_hat[2] = {2,2};
-	musicbox_create_phrase(x, x->hat_phrase, repeats_hat, sections_hat, 2);
+		srand(x->seed);
 
-	char* f_ghost = "D:/music_algorithm/patterns/ghost.txt";
-	char* sections_ghost[1] = { f_ghost };
-	int repeats_ghost[1] = { 4 };
-	musicbox_create_phrase(x, x->ghost_phrase, repeats_ghost, sections_ghost, 1);
+		// Load instrument
 
-	char* f_snare = "D:/music_algorithm/patterns/snare.txt";
-	char* sections_snare[1] = { f_snare };
-	int repeats_snare[1] = { 4 };
-	musicbox_create_phrase(x, x->snare_phrase, repeats_snare, sections_snare, 1);
+		char* f_hat = "D:/music_algorithm/patterns/hat.txt";
+		char* f_hat2 = "D:/music_algorithm/patterns/hat2.txt";
+		char* sections_hat[2] = { f_hat, f_hat2 };
+		int rand_line_hat = get_random(1, number_of_lines(f_hat));
+		musicbox_create_section(x, x->hat_section, sections_hat, rand_line_hat);
 
-	char* f_kick = "D:/music_algorithm/patterns/kick.txt";
-	char* sections_kick[1] = {f_kick};
-	int repeats_kick[1] = {4};
-	musicbox_create_phrase(x, x->kick_phrase, repeats_kick, sections_kick, 1);
+		char* f_ghost = "D:/music_algorithm/patterns/ghost.txt";
+		char* sections_ghost[2] = {f_ghost, f_ghost};
+		int rand_line_ghost = get_random(1, number_of_lines(f_ghost));
+		musicbox_create_section(x, x->ghost_section, sections_ghost, rand_line_ghost);
 
-	int** progression = load_chords("D:/music_algorithm/patterns/chords.txt");
+		char* f_snare = "D:/music_algorithm/patterns/snare.txt";
+		char* sections_snare[2] = {f_snare, f_snare};
+		int rand_line_snare = get_random(1, number_of_lines(f_snare));
+		musicbox_create_section(x, x->snare_section, sections_snare, rand_line_snare);
 
-	musicbox_create_bass_phrase(x, x->bass_phrase, x->kick_phrase, progression);
+		char* f_kick = "D:/music_algorithm/patterns/kick.txt";
+		char* sections_kick[2] = {f_kick, f_kick};
+		int rand_line_kick = get_random(1, number_of_lines(f_kick));
+		musicbox_create_section(x, x->kick_section, sections_kick, rand_line_kick);
 
-	musicbox_create_melody_phrase(x, x->melody_phrase, x->snare_phrase);
+		// Load chords
 
-	// Play song
+		static int** progressions[2];
+		static int chord_1_v[4] = { 0,0,0,0 };
+		static int chord_2_v[4] = { 0,0,0,0 };
+		static int chord_3_v[4] = { 0,0,0,0 };
+		static int chord_4_v[4] = { 0,0,0,0 };
+		static int* progression_verse[4] = { chord_1_v, chord_2_v, chord_3_v, chord_4_v };
+		static int chord_1_c[4] = { 0,0,0,0 };
+		static int chord_2_c[4] = { 0,0,0,0 };
+		static int chord_3_c[4] = { 0,0,0,0 };
+		static int chord_4_c[4] = { 0,0,0,0 };
+		static int* progression_chorus[4] = { chord_1_c, chord_2_c, chord_3_c, chord_4_c };
+		memcpy(load_chords("D:/music_algorithm/patterns/chords.txt"), progression_verse, 32);
+		memcpy(load_chords("D:/music_algorithm/patterns/chords2.txt"), progression_chorus, 32);
+		progressions[1] = progression_verse;
+		progressions[0] = progression_chorus;
 
-	x->runs = 4;
-	clock_fdelay(x->m_clock, 0.);
+		musicbox_create_piano_section(x, x->piano1_section, progressions, 1);
+		musicbox_create_piano_section(x, x->piano2_section, progressions, 2);
+		musicbox_create_piano_section(x, x->piano3_section, progressions, 3);
+		musicbox_create_piano_section(x, x->piano4_section, progressions, 4);
+
+		musicbox_create_bass_section(x, x->bass_section, x->kick_section->head, progressions);
+		//musicbox_create_bass_phrase(x, x->bass_phrase, x->kick_phrase, progression);
+
+		musicbox_create_melody_section(x, x->melody_section, x->snare_section->head);
+		//musicbox_create_melody_phrase(x, x->melody_phrase, x->snare_phrase);
+
+		// Play song
+
+		x->runs = 4;
+		clock_fdelay(x->m_clock, 0.);
+	}
+	else {
+		x->play = 0;
+	}
 }
 
 void musicbox_in1(t_musicbox* x, long n)
@@ -338,7 +448,7 @@ void musicbox_in1(t_musicbox* x, long n)
 	x->beat = tempo_to_mil(x->tempo);
 }
 
-void musicbox_in2(t_musicbox* x, long n)
+void musicbox_in2(t_musicbox* x, unsigned int n)
 {
 	x->seed = n;
 }
@@ -347,39 +457,129 @@ void musicbox_in2(t_musicbox* x, long n)
 
 void musicbox_task(t_musicbox* x)
 {
-	/*double time;
-	clock_getftime(&time);
-	post("Time: %f", time);*/
+	x->measures = 4;
 
-	x->bass_phrase = next_phrase(x->bass_phrase);
-	x->bass_current = x->bass_phrase->head;
-	
-	x->melody_phrase = next_phrase(x->melody_phrase);
-	x->melody_current = x->melody_phrase->head;
+	x->piano1_section = next_section(x->piano1_section);
+	x->piano1_phrase = x->piano1_section->head;
+	x->piano2_section = next_section(x->piano2_section);
+	x->piano2_phrase = x->piano2_section->head;
+	x->piano3_section = next_section(x->piano3_section);
+	x->piano3_phrase = x->piano3_section->head;
+	x->piano4_section = next_section(x->piano4_section);
+	x->piano4_phrase = x->piano4_section->head;
 
-	x->hat_phrase = next_phrase(x->hat_phrase);
-	x->hat_current = x->hat_phrase->head;
+	x->bass_section = next_section(x->bass_section);
+	x->bass_phrase = x->bass_section->head;
 
-	x->ghost_phrase = next_phrase(x->ghost_phrase);
-	x->ghost_current = x->ghost_phrase->head;
+	x->melody_section = next_section(x->melody_section);
+	x->melody_phrase = x->melody_section->head;
 
-	x->snare_phrase = next_phrase(x->snare_phrase);
-	x->snare_current = x->snare_phrase->head;
+	x->hat_section = next_section(x->hat_section);
+	x->hat_phrase = x->hat_section->head;
 
-	x->kick_phrase = next_phrase(x->kick_phrase);
-	x->kick_current = x->kick_phrase->head;
+	x->ghost_section = next_section(x->ghost_section);
+	x->ghost_phrase = x->ghost_section->head;
+
+	x->snare_section = next_section(x->snare_section);
+	x->snare_phrase = x->snare_section->head;
+
+	x->kick_section = next_section(x->kick_section);
+	x->kick_phrase = x->kick_section->head;
 
 	if (x->runs > 0) {
-		post("Run: %ld", x->runs);
-		clock_fdelay(x->m_clock, 4*(double)x->beat);
+		//post("Runs: %ld", x->runs);
+		double measure = 4 * (double)x->beat;
+		clock_fdelay(x->m_clock, 4*measure);
+		clock_fdelay(x->measure_clock, .0);
+		x->runs -= 1;
+	}
+	else {
+		clock_unset(x->m_clock);
+		clock_unset(x->measure_clock);
+		clock_unset(x->piano_clock);
+		clock_unset(x->bass_clock);
+		clock_unset(x->melody_clock);
+		clock_unset(x->hat_clock);
+		clock_unset(x->ghost_clock);
+		clock_unset(x->snare_clock);
+		clock_unset(x->kick_clock);
+	}
+}
 
+void musicbox_measure_task(t_musicbox* x)
+{
+	x->piano1_phrase = next_phrase(x->piano1_phrase, 0);
+	x->piano1_current = x->piano1_phrase->head;
+	x->piano2_phrase = next_phrase(x->piano2_phrase, 0);
+	x->piano2_current = x->piano2_phrase->head;
+	x->piano3_phrase = next_phrase(x->piano3_phrase, 0);
+	x->piano3_current = x->piano3_phrase->head;
+	x->piano4_phrase = next_phrase(x->piano4_phrase, 0);
+	x->piano4_current = x->piano4_phrase->head;
+	
+	x->bass_phrase = next_phrase(x->bass_phrase, 0);
+	x->bass_current = x->bass_phrase->head;
+
+	x->melody_phrase = next_phrase(x->melody_phrase, 1);
+	x->melody_current = x->melody_phrase->head;
+
+	x->hat_phrase = next_phrase(x->hat_phrase, 2);
+	x->hat_current = x->hat_phrase->head;
+
+	x->ghost_phrase = next_phrase(x->ghost_phrase, 3);
+	x->ghost_current = x->ghost_phrase->head;
+
+	x->snare_phrase = next_phrase(x->snare_phrase, 4);
+	x->snare_current = x->snare_phrase->head;
+
+	x->kick_phrase = next_phrase(x->kick_phrase, 5);
+	x->kick_current = x->kick_phrase->head;
+	
+	if (x->measures < 2) {
+		x->piano1_phrase = reset_phrase(x->piano1_phrase, 0);
+		x->piano2_phrase = reset_phrase(x->piano2_phrase, 0);
+		x->piano3_phrase = reset_phrase(x->piano3_phrase, 0);
+		x->piano4_phrase = reset_phrase(x->piano4_phrase, 0);
+
+		x->bass_phrase = reset_phrase(x->bass_phrase, 0);
+		x->melody_phrase = reset_phrase(x->melody_phrase, 1);
+		x->hat_phrase = reset_phrase(x->hat_phrase, 2);
+		x->ghost_phrase = reset_phrase(x->ghost_phrase, 3);
+		x->snare_phrase = reset_phrase(x->snare_phrase, 4);
+		x->kick_phrase = reset_phrase(x->kick_phrase, 5);
+	}
+
+	if (x->measures > 0) {
+		//post("Measures: %ld", x->measures);
+		clock_fdelay(x->measure_clock, 4 * (double)x->beat);
+
+		clock_fdelay(x->piano_clock, .0);
 		clock_fdelay(x->bass_clock, .0);
 		clock_fdelay(x->melody_clock, .0);
 		clock_fdelay(x->hat_clock, .0);
 		clock_fdelay(x->ghost_clock, .0);
 		clock_fdelay(x->snare_clock, .0);
 		clock_fdelay(x->kick_clock, .0);
-		x->runs -= 1;
+		x->measures -= 1;
+	}
+}
+
+void musicbox_piano_task(t_musicbox* x) {
+	note* current1 = x->piano1_current;
+	note* current2 = x->piano2_current;
+	note* current3 = x->piano3_current;
+	note* current4 = x->piano4_current;
+	outlet_int(x->piano_outlet_value_1, current1->value);
+	outlet_int(x->piano_outlet_value_2, current2->value);
+	outlet_int(x->piano_outlet_value_3, current3->value);
+	outlet_int(x->piano_outlet_value_4, current4->value);
+	outlet_float(x->piano_outlet_length, current1->length * (double)x->beat);
+	if (current1->next->value != NULL) {
+		clock_fdelay(x->piano_clock, current1->length * (double)x->beat);
+		x->piano1_current = current1->next;
+		x->piano2_current = current2->next;
+		x->piano3_current = current3->next;
+		x->piano4_current = current4->next;
 	}
 }
 
@@ -445,10 +645,24 @@ void musicbox_kick_task(t_musicbox* x) {
 
 // Additional
 
-void musicbox_create_phrase(t_musicbox* x, phrase* current_phrase, int* repeats, char** filename, int sections) {
-	for (int i = 0; i < sections; i++) {
-		musicbox_loadfile(x, current_phrase->head, *(filename + i));
-		current_phrase->repetitions = *(repeats + i);
+void musicbox_create_section(t_musicbox* x, section* current_section, char** filename, int rand_line) {
+	for (int i = 0; i < 2; i++) {
+		musicbox_create_phrase(x, current_section->head, *(filename + i), rand_line);
+		current_section->repetitions = 2;
+
+		current_section->next = (section*)malloc(sizeof(section));
+		current_section->next->head = (phrase*)malloc(sizeof(phrase));
+		current_section->next->head->head = (note*)malloc(sizeof(note));
+		current_section->next->repetitions = 0;
+		current_section->next->next = NULL;
+		current_section = current_section->next;
+	}
+}
+
+void musicbox_create_phrase(t_musicbox* x, phrase* current_phrase, char* filename, int rand_line) {
+	for (int i = 0; i < 1; i++) {
+		musicbox_loadfile(x, current_phrase->head, filename, rand_line);
+		current_phrase->repetitions = 4;
 
 		current_phrase->next = (phrase*)malloc(sizeof(phrase));
 		current_phrase->next->head = (note*)malloc(sizeof(note));
@@ -458,7 +672,7 @@ void musicbox_create_phrase(t_musicbox* x, phrase* current_phrase, int* repeats,
 	}
 }
 
-void musicbox_loadfile(t_musicbox* x, note* current_note, char* filename) {
+void musicbox_loadfile(t_musicbox* x, note* current_note, char* filename, int rand_line) {
 	FILE* fp;
 	char str[MAXCHAR];
 
@@ -466,7 +680,7 @@ void musicbox_loadfile(t_musicbox* x, note* current_note, char* filename) {
 
 	int line = 1;
 
-	int rand_line = get_random(1, number_of_lines(filename));
+	//int rand_line = get_random(1, number_of_lines(filename));
 
 	fp = fopen(filename, "r");
 	if (fp == NULL) {
@@ -544,11 +758,11 @@ void musicbox_create_melody(t_musicbox* x, note* current_note, note* follow_beat
 		int j = 0;
 		if (on_back_beat == 1) { //On the back beat
 			j = i+1;
-			rand_note = scale[rand_note_index] + 12;
+			rand_note = scale[rand_note_index]; //+ 12;
 		}
 		else { //Not on backbeat
 			j = i;
-			rand_note = scale[rand_note_index];
+			rand_note = scale[rand_note_index] - 12;
 		}
 
 		if (*(back_beat + j) == -1) { //No more back beats
@@ -580,15 +794,35 @@ void musicbox_create_melody(t_musicbox* x, note* current_note, note* follow_beat
 }
 
 void musicbox_create_melody_phrase(t_musicbox* x, phrase* current_phrase, phrase* follow_phrase) {
-	for (int i = 0; i < 1; i++) {
+	for (int i = 0; i < 2; i++) {
 		musicbox_create_melody(x, current_phrase->head, follow_phrase->head);
-		current_phrase->repetitions = 4;
+
+		if (i == 0) {
+			current_phrase->repetitions = 3;
+		}
+		else {
+			current_phrase->repetitions = 1;
+		}
 
 		current_phrase->next = (phrase*)malloc(sizeof(phrase));
 		current_phrase->next->head = (note*)malloc(sizeof(note));
 		current_phrase->next->repetitions = 0;
 		current_phrase->next->next = NULL;
 		current_phrase = current_phrase->next;
+	}
+}
+
+void musicbox_create_melody_section(t_musicbox* x, section* current_section, phrase* follow_phrase) {
+	for (int i = 0; i < 2; i++) {
+		musicbox_create_melody_phrase(x, current_section->head, follow_phrase);
+		current_section->repetitions = 2;
+
+		current_section->next = (section*)malloc(sizeof(section));
+		current_section->next->head = (phrase*)malloc(sizeof(phrase));
+		current_section->next->head->head = (note*)malloc(sizeof(note));
+		current_section->next->repetitions = 0;
+		current_section->next->next = NULL;
+		current_section = current_section->next;
 	}
 }
 
@@ -670,5 +904,59 @@ void musicbox_create_bass_phrase(t_musicbox* x, phrase* current_phrase, phrase* 
 		current_phrase->next->repetitions = 0;
 		current_phrase->next->next = NULL;
 		current_phrase = current_phrase->next;
+	}
+}
+
+void musicbox_create_bass_section(t_musicbox* x, section* current_section, phrase* follow_phrase, int*** progressions) {
+	for (int i = 0; i < 2; i++) {
+		musicbox_create_bass_phrase(x, current_section->head, follow_phrase, *(progressions + i));
+		current_section->repetitions = 2;
+
+		current_section->next = (section*)malloc(sizeof(section));
+		current_section->next->head = (phrase*)malloc(sizeof(phrase));
+		current_section->next->head->head = (note*)malloc(sizeof(note));
+		current_section->next->repetitions = 0;
+		current_section->next->next = NULL;
+		current_section = current_section->next;
+	}
+}
+
+void musicbox_create_piano(t_musicbox* x, note* current_note, int* scale, int piano_note) {
+	int index = piano_note - 1;
+	int note_value = *(scale + index);
+	current_note->length = 4.0;
+	current_note->value = note_value + 24;
+
+	current_note->next = (note*)malloc(sizeof(note));
+	current_note->next->value = NULL;
+	current_note->next->length = 0;
+	current_note->next->next = NULL;
+	current_note = current_note->next;
+}
+
+void musicbox_create_piano_phrase(t_musicbox* x, phrase* current_phrase, int** progression, int piano_note) {
+	for (int i = 0; i < 4; i++) {
+		musicbox_create_piano(x, current_phrase->head, *(progression + i), piano_note);
+		current_phrase->repetitions = 1;
+
+		current_phrase->next = (phrase*)malloc(sizeof(phrase));
+		current_phrase->next->head = (note*)malloc(sizeof(note));
+		current_phrase->next->repetitions = 0;
+		current_phrase->next->next = NULL;
+		current_phrase = current_phrase->next;
+	}
+}
+
+void musicbox_create_piano_section(t_musicbox* x, section* current_section, int*** progressions, int piano_note) {
+	for (int i = 0; i < 2; i++) {
+		musicbox_create_piano_phrase(x, current_section->head, *(progressions + i), piano_note);
+		current_section->repetitions = 2;
+
+		current_section->next = (section*)malloc(sizeof(section));
+		current_section->next->head = (phrase*)malloc(sizeof(phrase));
+		current_section->next->head->head = (note*)malloc(sizeof(note));
+		current_section->next->repetitions = 0;
+		current_section->next->next = NULL;
+		current_section = current_section->next;
 	}
 }
