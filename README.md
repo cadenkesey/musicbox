@@ -4,6 +4,8 @@ This is a Max object for generating songs using random numbers and simple compos
 
 [A video demonstration](https://youtu.be/fyaTH6KR6Uc)
 
+Learn more at [my site](https://cadenkesey.github.io/musicbox.html).
+
 ## Using Music Box
 
 Editing this code will require the Max SDK version 8 which can be downloaded from the Cycling '74 website.
@@ -16,4 +18,4 @@ The Music Algorithm folder is also necessary as it holds all of the patterns for
 
 ## Authors
 
-* **Caden Kesey** - [cjkesey](https://github.com/cjkesey)
+* **Caden Kesey** - [cadenkesey](https://github.com/cadenkesey)
