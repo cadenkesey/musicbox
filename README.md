@@ -15,7 +15,3 @@ Editing this code will require the Max SDK version 8 which can be downloaded fro
 The object outputs notes as integers and floats representing value and length respectively, which means that a few Max objects are needed to join this information into MIDI format.
 
 The Music Algorithm folder is also necessary as it holds all of the patterns for the drums and chord progressions.
-
-## Authors
-
-* **Caden Kesey** - [cadenkesey](https://github.com/cadenkesey)
